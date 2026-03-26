@@ -1,28 +1,60 @@
-name: Download ParadeDB Image as TAR
+name: Download ParadeDB and Redis Images as TAR
 
 on:
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   download:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Pull and Save ParadeDB Image
+      # 配置 Docker 镜像加速器（绕过 Docker Hub 限速）
+      - name: Set up Docker with public mirrors
         run: |
-          docker pull paradedb/paradedb:v0.22.3-pg17
-          docker pull redis:7.0-alpine
-          docker save paradedb/paradedb:v0.22.3-pg17 redis:7.0-alpine -o all-images.tar
-          ls -lh paradedb.tar
+          sudo mkdir -p /etc/docker
+          sudo tee /etc/docker/daemon.json <<EOF
+          {
+            "registry-mirrors": [
+              "https://hub-mirror.c.163.com",
+              "https://docker.mirrors.ustc.edu.cn"
+            ]
+          }
+          EOF
+          sudo systemctl restart docker
+          docker info | grep -A 2 "Registry Mirrors"
 
-      - name: Upload paradedb.tar as Artifact
+      # 拉取并保存两个镜像
+      - name: Pull and Save ParadeDB + Redis Images
+        run: |
+          echo "=== Pulling redis:7.0-alpine ==="
+          if ! docker pull redis:7.0-alpine; then
+            echo "❌ Failed to pull redis:7.0-alpine"
+            exit 1
+          fi
+
+          echo "=== Pulling paradedb/paradedb:v0.21.4-pg17 ==="
+          if ! docker pull paradedb/paradedb:v0.21.4-pg17; then
+            echo "❌ Failed to pull paradedb/paradedb:v0.21.4-pg17"
+            echo "Possible reasons:"
+            echo "1. The tag does not exist on Docker Hub"
+            echo "2. Rate limited (but we're using mirrors, so unlikely)"
+            echo "3. Temporary network issue"
+            exit 1
+          fi
+
+          echo "=== Saving both images to all-images.tar ==="
+          docker save redis:7.0-alpine paradedb/paradedb:v0.21.4-pg17 -o all-images.tar
+          ls -lh all-images.tar
+
+      # 无论成功失败都尝试上传（方便调试）
+      - name: Upload all-images.tar as Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: paradedb-image-tar
-          path: paradedb.tar
-          retention-days: 1  # 保留1天，够你下载了
+          name: all-images-tar
+          path: all-images.tar
+          retention-days: 1
