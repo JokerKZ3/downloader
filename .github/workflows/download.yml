@@ -1,0 +1,28 @@
+name: Download ParadeDB Image as TAR
+
+on:
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pull and Save ParadeDB Image
+        run: |
+          docker pull paradedb/paradedb:v0.21.4-pg17
+          docker pull redis:7.0-alpine
+          docker save paradedb/paradedb:v0.21.4-pg17 redis:7.0-alpine -o all-images.tar
+          ls -lh paradedb.tar
+
+      - name: Upload paradedb.tar as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paradedb-image-tar
+          path: paradedb.tar
+          retention-days: 1  # 保留1天，够你下载了
