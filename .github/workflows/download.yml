@@ -15,9 +15,9 @@ jobs:
 
       - name: Pull and Save ParadeDB Image
         run: |
-          docker pull paradedb/paradedb:v0.21.4-pg17
+          docker pull paradedb/paradedb:v0.22.3-pg17
           docker pull redis:7.0-alpine
-          docker save paradedb/paradedb:v0.21.4-pg17 redis:7.0-alpine -o all-images.tar
+          docker save paradedb/paradedb:v0.22.3-pg17 redis:7.0-alpine -o all-images.tar
           ls -lh paradedb.tar
 
       - name: Upload paradedb.tar as Artifact
