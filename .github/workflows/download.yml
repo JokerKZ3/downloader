@@ -1,7 +1,7 @@
-name: Download ParadeDB and Redis Images as TAR
+name: Download All Required Images for Offline Build
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   download:
@@ -12,47 +12,73 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 配置 Docker 镜像加速器（绕过 Docker Hub 限速）
-      - name: Set up Docker with public mirrors
+      # 配置 Docker 镜像加速器（使用中科大，更稳定）
+      - name: Set up Docker with USTC Mirror
         run: |
           sudo mkdir -p /etc/docker
           sudo tee /etc/docker/daemon.json <<EOF
           {
-            "registry-mirrors": [
-              "https://hub-mirror.c.163.com",
-              "https://docker.mirrors.ustc.edu.cn"
-            ]
+            "registry-mirrors": ["https://docker.mirrors.ustc.edu.cn"]
           }
           EOF
           sudo systemctl restart docker
-          docker info | grep -A 2 "Registry Mirrors"
+          echo "✅ Docker configured with USTC mirror"
 
-      # 拉取并保存两个镜像
-      - name: Pull and Save ParadeDB + Redis Images
+      # 拉取所有必需的镜像（运行时 + 构建时）
+      - name: Pull All Required Docker Images
         run: |
-          echo "=== Pulling redis:7.0-alpine ==="
-          if ! docker pull redis:7.0-alpine; then
-            echo "❌ Failed to pull redis:7.0-alpine"
-            exit 1
-          fi
+          echo "=== Pulling runtime images ==="
+          docker pull paradedb/paradedb:v0.21.4-pg17
+          docker pull redis:7.0-alpine
 
-          echo "=== Pulling paradedb/paradedb:v0.21.4-pg17 ==="
-          if ! docker pull paradedb/paradedb:v0.21.4-pg17; then
-            echo "❌ Failed to pull paradedb/paradedb:v0.21.4-pg17"
-            echo "Possible reasons:"
-            echo "1. The tag does not exist on Docker Hub"
-            echo "2. Rate limited (but we're using mirrors, so unlikely)"
-            echo "3. Temporary network issue"
-            exit 1
-          fi
+          echo "=== Pulling build-time base images ==="
+          docker pull node:24-alpine
+          docker pull nginx:stable-alpine
+          docker pull debian:12.12-slim
+          docker pull golang:1.24-bookworm
+          docker pull python:3.10.18-bookworm
 
-          echo "=== Saving both images to all-images.tar ==="
-          docker save redis:7.0-alpine paradedb/paradedb:v0.21.4-pg17 -o all-images.tar
-          ls -lh all-images.tar
+          echo "✅ All images pulled successfully"
 
-      # 无论成功失败都尝试上传（方便调试）
+      # 验证所有镜像是否存在
+      - name: Verify All Images Are Present
+        run: |
+          REQUIRED_IMAGES=(
+            "paradedb/paradedb:v0.21.4-pg17"
+            "redis:7.0-alpine"
+            "node:24-alpine"
+            "nginx:stable-alpine"
+            "debian:12.12-slim"
+            "golang:1.24-bookworm"
+            "python:3.10.18-bookworm"
+          )
+          for img in "${REQUIRED_IMAGES[@]}"; do
+            if ! docker images --format "{{.Repository}}:{{.Tag}}" | grep -Fxq "$img"; then
+              echo "❌ Missing image: $img"
+              exit 1
+            fi
+          done
+          echo "✅ All required images are present"
+
+      # 打包所有镜像到单个 tar 文件
+      - name: Save All Images to all-images.tar
+        run: |
+          echo "📦 Saving all images to all-images.tar..."
+          docker save \
+            paradedb/paradedb:v0.21.4-pg17 \
+            redis:7.0-alpine \
+            node:24-alpine \
+            nginx:stable-alpine \
+            debian:12.12-slim \
+            golang:1.24-bookworm \
+            python:3.10.18-bookworm \
+            -o all-images.tar
+
+          SIZE=$(du -h all-images.tar | cut -f1)
+          echo "✅ Tar file created. Size: $SIZE"
+
+      # 上传 artifact（保留1天）
       - name: Upload all-images.tar as Artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: all-images-tar
